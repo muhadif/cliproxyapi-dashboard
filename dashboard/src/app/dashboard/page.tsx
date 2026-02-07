@@ -32,7 +32,11 @@ async function fetchManagementJson({ path }: ManagementFetchParams) {
 
 async function getServiceHealth() {
   try {
-    const res = await fetch("http://cliproxyapi:8317/", { cache: "no-store" });
+    const baseUrl =
+      process.env.CLIPROXYAPI_MANAGEMENT_URL ||
+      "http://cliproxyapi:8317/v0/management";
+    const root = baseUrl.replace(/\/v0\/management\/?$/, "/");
+    const res = await fetch(root, { cache: "no-store" });
     return res.ok;
   } catch {
     return false;
@@ -201,32 +205,39 @@ function extractOAuthModelAliasIds(
   return ids;
 }
 
+interface ModelMetadata {
+  models: string[];
+  sourceMap: Map<string, string>;
+}
+
 function buildAllAvailableModelIds(
   config: Record<string, unknown> | null,
   oauthAccounts: OAuthAccountEntry[],
   modelsDevData: Record<string, unknown> | null
-): string[] {
+): ModelMetadata {
   const seen = new Set<string>();
   const ids: string[] = [];
+  const sourceMap = new Map<string, string>();
 
-  const add = (modelId: string) => {
+  const add = (modelId: string, source: string) => {
     if (!seen.has(modelId)) {
       seen.add(modelId);
       ids.push(modelId);
+      sourceMap.set(modelId, source);
     }
   };
 
   if (hasProvider(config, PROVIDER_KEYS.GEMINI)) {
-    for (const id of GEMINI_MODEL_IDS) add(id);
-    for (const id of discoverModelsFromProvider(modelsDevData, "google")) add(id);
+    for (const id of GEMINI_MODEL_IDS) add(id, "Gemini");
+    for (const id of discoverModelsFromProvider(modelsDevData, "google")) add(id, "Gemini");
   }
   if (hasProvider(config, PROVIDER_KEYS.CLAUDE)) {
-    for (const id of CLAUDE_MODEL_IDS) add(id);
-    for (const id of discoverModelsFromProvider(modelsDevData, "anthropic")) add(id);
+    for (const id of CLAUDE_MODEL_IDS) add(id, "Claude");
+    for (const id of discoverModelsFromProvider(modelsDevData, "anthropic")) add(id, "Claude");
   }
   if (hasProvider(config, PROVIDER_KEYS.CODEX)) {
-    for (const id of CODEX_MODEL_IDS) add(id);
-    for (const id of discoverModelsFromProvider(modelsDevData, "openai")) add(id);
+    for (const id of CODEX_MODEL_IDS) add(id, "OpenAI/Codex");
+    for (const id of discoverModelsFromProvider(modelsDevData, "openai")) add(id, "OpenAI/Codex");
   }
   const activeOAuthTypes = new Set<string>();
   for (const account of oauthAccounts) {
@@ -237,24 +248,25 @@ function buildAllAvailableModelIds(
   }
 
   if (!hasProvider(config, PROVIDER_KEYS.CLAUDE) && activeOAuthTypes.has("claude")) {
-    for (const id of CLAUDE_MODEL_IDS) add(id);
-    for (const id of discoverModelsFromProvider(modelsDevData, "anthropic")) add(id);
+    for (const id of CLAUDE_MODEL_IDS) add(id, "Claude");
+    for (const id of discoverModelsFromProvider(modelsDevData, "anthropic")) add(id, "Claude");
   }
   if (!hasProvider(config, PROVIDER_KEYS.GEMINI) && (activeOAuthTypes.has("gemini-cli") || activeOAuthTypes.has("antigravity"))) {
-    for (const id of GEMINI_MODEL_IDS) add(id);
-    for (const id of discoverModelsFromProvider(modelsDevData, "google")) add(id);
+    const source = activeOAuthTypes.has("antigravity") ? "Antigravity" : "Gemini";
+    for (const id of GEMINI_MODEL_IDS) add(id, source);
+    for (const id of discoverModelsFromProvider(modelsDevData, "google")) add(id, source);
   }
   if (!hasProvider(config, PROVIDER_KEYS.CODEX) && activeOAuthTypes.has("codex")) {
-    for (const id of CODEX_MODEL_IDS) add(id);
-    for (const id of discoverModelsFromProvider(modelsDevData, "openai")) add(id);
+    for (const id of CODEX_MODEL_IDS) add(id, "OpenAI/Codex");
+    for (const id of discoverModelsFromProvider(modelsDevData, "openai")) add(id, "OpenAI/Codex");
   }
 
   if (hasProvider(config, PROVIDER_KEYS.OPENAI_COMPAT)) {
-    for (const id of extractOpenAICompatModelIds(config)) add(id);
+    for (const id of extractOpenAICompatModelIds(config)) add(id, "OpenAI-Compatible");
   }
-  for (const id of extractOAuthModelAliasIds(config, oauthAccounts)) add(id);
+  for (const id of extractOAuthModelAliasIds(config, oauthAccounts)) add(id, "Other");
 
-  return ids;
+  return { models: ids, sourceMap };
 }
 
 export default async function QuickStartPage() {
@@ -267,14 +279,19 @@ export default async function QuickStartPage() {
     verifySession(),
   ]);
 
-  const [modelPreference, agentOverride] = session
+  const [modelPreference, agentOverride, activeSyncTokens] = session
     ? await Promise.all([
         prisma.modelPreference.findUnique({ where: { userId: session.userId } }),
         prisma.agentModelOverride.findUnique({ where: { userId: session.userId } }),
+        prisma.syncToken.findMany({
+          where: { userId: session.userId, revokedAt: null },
+          select: { id: true },
+        }),
       ])
-    : [null, null];
+    : [null, null, []];
   const initialExcludedModels = modelPreference?.excludedModels ?? [];
   const agentOverrides = (agentOverride?.overrides ?? {}) as OhMyOpenCodeFullConfig;
+  const hasSyncActive = activeSyncTokens.length > 0;
 
   const apiKeys = extractApiKeyStrings(apiKeysData);
   const oauthAccounts = extractOAuthAccounts(oauthData);
@@ -302,7 +319,7 @@ export default async function QuickStartPage() {
 
   const providerCount = configProviderCount + activeOAuthProviders.size;
 
-  const availableModelIds = buildAllAvailableModelIds(config, oauthAccounts, modelsDevData);
+  const { models: availableModelIds, sourceMap: modelSourceMap } = buildAllAvailableModelIds(config, oauthAccounts, modelsDevData);
 
    return (
      <div className="space-y-5">
@@ -375,8 +392,10 @@ export default async function QuickStartPage() {
         oauthAccounts={oauthAccounts}
         modelsDevData={modelsDevData}
         availableModels={availableModelIds}
+        modelSourceMap={modelSourceMap}
         initialExcludedModels={initialExcludedModels}
         agentOverrides={agentOverrides}
+        hasSyncActive={hasSyncActive}
       />
 
       <Card>

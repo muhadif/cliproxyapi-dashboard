@@ -7,6 +7,8 @@ import {
   type OAuthAccount,
   type ConfigData,
   type ModelsDevData,
+  type McpEntry,
+  type LspEntry,
   buildAvailableModels,
   generateConfigJson,
 } from "@/lib/config-generators/opencode";
@@ -31,9 +33,24 @@ function downloadFile(content: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+const DEFAULT_PLUGINS = [
+  "opencode-cliproxyapi-sync",
+  "oh-my-opencode@latest",
+  "opencode-anthropic-auth@latest",
+];
+
 export function OpenCodeConfigGenerator({ apiKeys, config, oauthAccounts, modelsDevData, excludedModels }: OpenCodeConfigGeneratorProps) {
    const [selectedKeyIndex, setSelectedKeyIndex] = useState(0);
    const [isExpanded, setIsExpanded] = useState(false);
+   const [isModelsExpanded, setIsModelsExpanded] = useState(false);
+   const [plugins, setPlugins] = useState<string[]>(DEFAULT_PLUGINS);
+   const [pluginInput, setPluginInput] = useState("");
+   const [mcps, setMcps] = useState<McpEntry[]>([]);
+   const [mcpName, setMcpName] = useState("");
+   const [mcpCommand, setMcpCommand] = useState("");
+   const [lsps, setLsps] = useState<LspEntry[]>([]);
+   const [lspLanguage, setLspLanguage] = useState("");
+   const [lspCommand, setLspCommand] = useState("");
 
   const allModels = buildAvailableModels(config, oauthAccounts, modelsDevData);
   const availableModels = excludedModels
@@ -49,7 +66,51 @@ export function OpenCodeConfigGenerator({ apiKeys, config, oauthAccounts, models
     ? apiKeys[selectedKeyIndex] ?? apiKeys[0]
     : "your-api-key-from-dashboard";
 
-  const configJson = generateConfigJson(activeKey, availableModels);
+  const configJson = generateConfigJson(activeKey, availableModels, {
+    plugins,
+    mcps,
+    lsps,
+  });
+
+  const handleAddPlugin = () => {
+    const trimmed = pluginInput.trim();
+    if (trimmed && !plugins.includes(trimmed)) {
+      setPlugins([...plugins, trimmed]);
+      setPluginInput("");
+    }
+  };
+
+  const handleRemovePlugin = (plugin: string) => {
+    setPlugins(plugins.filter((p) => p !== plugin));
+  };
+
+  const handleAddMcp = () => {
+    const trimmedName = mcpName.trim();
+    const trimmedCommand = mcpCommand.trim();
+    if (trimmedName && trimmedCommand && !mcps.some((m) => m.name === trimmedName)) {
+      setMcps([...mcps, { name: trimmedName, command: trimmedCommand }]);
+      setMcpName("");
+      setMcpCommand("");
+    }
+  };
+
+  const handleRemoveMcp = (name: string) => {
+    setMcps(mcps.filter((m) => m.name !== name));
+  };
+
+  const handleAddLsp = () => {
+    const trimmedLanguage = lspLanguage.trim();
+    const trimmedCommand = lspCommand.trim();
+    if (trimmedLanguage && trimmedCommand && !lsps.some((l) => l.language === trimmedLanguage)) {
+      setLsps([...lsps, { language: trimmedLanguage, command: trimmedCommand }]);
+      setLspLanguage("");
+      setLspCommand("");
+    }
+  };
+
+  const handleRemoveLsp = (language: string) => {
+    setLsps(lsps.filter((l) => l.language !== language));
+  };
 
   const handleDownload = () => {
     downloadFile(configJson, "opencode.json");
@@ -127,17 +188,210 @@ export function OpenCodeConfigGenerator({ apiKeys, config, oauthAccounts, models
             page. The config below uses a placeholder.
           </p>
         </div>
-      )}
+       )}
 
-       <div className="flex flex-wrap gap-1.5">
-         {Object.keys(availableModels).map((id) => (
-           <span
-             key={id}
-             className="px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-xs text-white/70 font-mono"
+       <div className="space-y-2">
+         <button
+           type="button"
+           onClick={() => setIsModelsExpanded(!isModelsExpanded)}
+           className="flex items-center gap-2 text-xs font-medium text-white/60 hover:text-white/90 transition-colors"
+         >
+           <svg
+             width="12"
+             height="12"
+             viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             strokeWidth="2"
+             strokeLinecap="round"
+             strokeLinejoin="round"
+             className={`transition-transform duration-200 ${isModelsExpanded ? "rotate-90" : ""}`}
+             aria-hidden="true"
            >
-             {id}
-           </span>
-         ))}
+             <polyline points="9 18 15 12 9 6" />
+           </svg>
+           {isModelsExpanded ? "Hide" : "Show"} available models ({Object.keys(availableModels).length})
+         </button>
+
+         {isModelsExpanded && (
+           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1.5">
+             {Object.keys(availableModels).map((id) => (
+               <span
+                 key={id}
+                 className="px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-xs text-white/70 font-mono truncate"
+                 title={id}
+               >
+                 {id}
+               </span>
+             ))}
+           </div>
+         )}
+       </div>
+
+       <div className="space-y-4 border-t border-white/10 pt-4">
+         <div className="space-y-2">
+           <label htmlFor="plugin-input" className="text-xs font-medium text-white/50 uppercase tracking-wider">
+             Plugins
+           </label>
+           <div className="flex gap-2">
+             <input
+               id="plugin-input"
+               type="text"
+               value={pluginInput}
+               onChange={(e) => setPluginInput(e.target.value)}
+               onKeyDown={(e) => e.key === "Enter" && handleAddPlugin()}
+               placeholder="plugin-name@version"
+               className="flex-1 backdrop-blur-xl bg-white/8 border border-white/15 rounded-lg px-3 py-2 text-sm text-white/90 font-mono placeholder:text-white/30 focus:border-purple-400/50 focus:bg-white/12 focus:outline-none transition-all"
+             />
+             <button
+               type="button"
+               onClick={handleAddPlugin}
+               className="px-4 py-2 rounded-lg bg-purple-500/20 border border-purple-400/30 text-purple-300 text-sm font-medium hover:bg-purple-500/30 hover:border-purple-400/50 transition-all"
+             >
+               Add
+             </button>
+           </div>
+           <div className="flex flex-wrap gap-1.5">
+             {plugins.map((plugin) => (
+               <span
+                 key={plugin}
+                 className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-purple-500/10 border border-purple-400/20 text-xs text-purple-300 font-mono"
+               >
+                 {plugin}
+                 <button
+                   type="button"
+                   onClick={() => handleRemovePlugin(plugin)}
+                   className="hover:text-red-400 transition-colors"
+                   aria-label={`Remove ${plugin}`}
+                 >
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                     <title>Remove</title>
+                     <line x1="18" y1="6" x2="6" y2="18" />
+                     <line x1="6" y1="6" x2="18" y2="18" />
+                   </svg>
+                 </button>
+               </span>
+             ))}
+           </div>
+         </div>
+
+         <div className="space-y-2">
+           <label htmlFor="mcp-name-input" className="text-xs font-medium text-white/50 uppercase tracking-wider">
+             MCP Servers
+           </label>
+           <div className="flex gap-2">
+             <input
+               id="mcp-name-input"
+               type="text"
+               value={mcpName}
+               onChange={(e) => setMcpName(e.target.value)}
+               placeholder="server-name"
+               className="flex-1 backdrop-blur-xl bg-white/8 border border-white/15 rounded-lg px-3 py-2 text-sm text-white/90 font-mono placeholder:text-white/30 focus:border-purple-400/50 focus:bg-white/12 focus:outline-none transition-all"
+             />
+             <input
+               type="text"
+               value={mcpCommand}
+               onChange={(e) => setMcpCommand(e.target.value)}
+               onKeyDown={(e) => e.key === "Enter" && handleAddMcp()}
+               placeholder="command"
+               className="flex-1 backdrop-blur-xl bg-white/8 border border-white/15 rounded-lg px-3 py-2 text-sm text-white/90 font-mono placeholder:text-white/30 focus:border-purple-400/50 focus:bg-white/12 focus:outline-none transition-all"
+             />
+             <button
+               type="button"
+               onClick={handleAddMcp}
+               className="px-4 py-2 rounded-lg bg-blue-500/20 border border-blue-400/30 text-blue-300 text-sm font-medium hover:bg-blue-500/30 hover:border-blue-400/50 transition-all"
+             >
+               Add
+             </button>
+           </div>
+           {mcps.length > 0 && (
+             <div className="space-y-1.5">
+               {mcps.map((mcp) => (
+                 <div
+                   key={mcp.name}
+                   className="flex items-center justify-between px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-400/20"
+                 >
+                   <div className="flex items-center gap-2 text-xs font-mono">
+                     <span className="text-blue-300">{mcp.name}</span>
+                     <span className="text-white/30">→</span>
+                     <span className="text-white/60">{mcp.command}</span>
+                   </div>
+                   <button
+                     type="button"
+                     onClick={() => handleRemoveMcp(mcp.name)}
+                     className="text-white/40 hover:text-red-400 transition-colors"
+                     aria-label={`Remove ${mcp.name}`}
+                   >
+                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                       <title>Remove</title>
+                       <line x1="18" y1="6" x2="6" y2="18" />
+                       <line x1="6" y1="6" x2="18" y2="18" />
+                     </svg>
+                   </button>
+                 </div>
+               ))}
+             </div>
+           )}
+         </div>
+
+         <div className="space-y-2">
+           <label htmlFor="lsp-language-input" className="text-xs font-medium text-white/50 uppercase tracking-wider">
+             LSP Servers
+           </label>
+           <div className="flex gap-2">
+             <input
+               id="lsp-language-input"
+               type="text"
+               value={lspLanguage}
+               onChange={(e) => setLspLanguage(e.target.value)}
+               placeholder="language"
+               className="flex-1 backdrop-blur-xl bg-white/8 border border-white/15 rounded-lg px-3 py-2 text-sm text-white/90 font-mono placeholder:text-white/30 focus:border-purple-400/50 focus:bg-white/12 focus:outline-none transition-all"
+             />
+             <input
+               type="text"
+               value={lspCommand}
+               onChange={(e) => setLspCommand(e.target.value)}
+               onKeyDown={(e) => e.key === "Enter" && handleAddLsp()}
+               placeholder="command"
+               className="flex-1 backdrop-blur-xl bg-white/8 border border-white/15 rounded-lg px-3 py-2 text-sm text-white/90 font-mono placeholder:text-white/30 focus:border-purple-400/50 focus:bg-white/12 focus:outline-none transition-all"
+             />
+             <button
+               type="button"
+               onClick={handleAddLsp}
+               className="px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-sm font-medium hover:bg-emerald-500/30 hover:border-emerald-400/50 transition-all"
+             >
+               Add
+             </button>
+           </div>
+           {lsps.length > 0 && (
+             <div className="space-y-1.5">
+               {lsps.map((lsp) => (
+                 <div
+                   key={lsp.language}
+                   className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-400/20"
+                 >
+                   <div className="flex items-center gap-2 text-xs font-mono">
+                     <span className="text-emerald-300">{lsp.language}</span>
+                     <span className="text-white/30">→</span>
+                     <span className="text-white/60">{lsp.command}</span>
+                   </div>
+                   <button
+                     type="button"
+                     onClick={() => handleRemoveLsp(lsp.language)}
+                     className="text-white/40 hover:text-red-400 transition-colors"
+                     aria-label={`Remove ${lsp.language}`}
+                   >
+                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                       <title>Remove</title>
+                       <line x1="18" y1="6" x2="6" y2="18" />
+                       <line x1="6" y1="6" x2="18" y2="18" />
+                     </svg>
+                   </button>
+                 </div>
+               ))}
+             </div>
+           )}
+         </div>
        </div>
 
        <button

@@ -139,9 +139,11 @@ export async function generateConfigBundle(userId: string, syncApiKey?: string |
 
   const firstModelId = Object.keys(filteredModels)[0] ?? "gemini-2.5-flash";
 
+  const plugins = ["opencode-cliproxyapi-sync", "oh-my-opencode@latest", "opencode-anthropic-auth@latest"];
+
   const opencodeConfig = {
     $schema: "https://opencode.ai/config.json",
-    plugin: ["opencode-cliproxyapi-sync", "oh-my-opencode@latest", "opencode-anthropic-auth@latest"],
+    plugin: plugins,
     provider: {
       cliproxyapi: {
         npm: "@ai-sdk/openai-compatible",

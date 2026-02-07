@@ -47,8 +47,10 @@ interface QuickStartConfigSectionProps {
   oauthAccounts: OAuthAccountEntry[];
   modelsDevData: unknown;
   availableModels: string[];
+  modelSourceMap: Map<string, string>;
   initialExcludedModels: string[];
   agentOverrides?: OhMyOpenCodeFullConfig;
+  hasSyncActive: boolean;
 }
 
 export function QuickStartConfigSection({
@@ -57,8 +59,10 @@ export function QuickStartConfigSection({
   oauthAccounts,
   modelsDevData,
   availableModels,
+  modelSourceMap,
   initialExcludedModels,
   agentOverrides,
+  hasSyncActive,
 }: QuickStartConfigSectionProps) {
   const [excludedModels, setExcludedModels] = useState<string[]>(initialExcludedModels);
 
@@ -67,6 +71,7 @@ export function QuickStartConfigSection({
       {availableModels.length > 0 && (
         <ModelSelector
           availableModels={availableModels}
+          modelSourceMap={modelSourceMap}
           initialExcludedModels={initialExcludedModels}
           onSelectionChange={setExcludedModels}
         />
@@ -85,8 +90,12 @@ export function QuickStartConfigSection({
           <div className="space-y-4">
             <p className="text-sm text-white/70">
               OpenCode uses a <code className="px-1.5 py-0.5 rounded bg-white/10 text-orange-300 text-xs font-mono break-all">opencode.json</code> config
-              file with a Custom Provider. Place this file at <code className="px-1.5 py-0.5 rounded bg-white/10 text-orange-300 text-xs font-mono break-all">~/.config/opencode/opencode.json</code> (global)
-              or in your project root (per-project).
+              file with a Custom Provider.{" "}
+              {hasSyncActive ? (
+                <span>Your config will auto-sync via the <code className="px-1.5 py-0.5 rounded bg-white/10 text-violet-300 text-xs font-mono">opencode-cliproxyapi-sync</code> plugin.</span>
+              ) : (
+                <span>Place this file at <code className="px-1.5 py-0.5 rounded bg-white/10 text-orange-300 text-xs font-mono break-all">~/.config/opencode/opencode.json</code> (global) or in your project root (per-project).</span>
+              )}
             </p>
 
             <OpenCodeConfigGenerator

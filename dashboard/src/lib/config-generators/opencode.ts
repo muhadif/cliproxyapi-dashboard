@@ -368,7 +368,27 @@ export function buildAvailableModels(
   return models;
 }
 
-export function generateConfigJson(apiKey: string, models: Record<string, ModelDefinition>): string {
+export interface McpEntry {
+  name: string;
+  command: string;
+}
+
+export interface LspEntry {
+  language: string;
+  command: string;
+}
+
+export interface GenerateConfigOptions {
+  plugins?: string[];
+  mcps?: McpEntry[];
+  lsps?: LspEntry[];
+}
+
+export function generateConfigJson(
+  apiKey: string,
+  models: Record<string, ModelDefinition>,
+  options?: GenerateConfigOptions
+): string {
   const modelEntries: Record<string, Record<string, unknown>> = {};
   for (const [id, def] of Object.entries(models)) {
     const entry: Record<string, unknown> = {
@@ -388,13 +408,15 @@ export function generateConfigJson(apiKey: string, models: Record<string, ModelD
 
   const firstModelId = Object.keys(models)[0] ?? "gemini-2.5-flash";
 
-  const configObj = {
+  const plugins = options?.plugins ?? [
+    "opencode-cliproxyapi-sync",
+    "oh-my-opencode@latest",
+    "opencode-anthropic-auth@latest",
+  ];
+
+  const configObj: Record<string, unknown> = {
     $schema: "https://opencode.ai/config.json",
-    plugin: [
-      "opencode-cliproxyapi-sync",
-      "oh-my-opencode@latest",
-      "opencode-anthropic-auth@latest",
-    ],
+    plugin: plugins,
     provider: {
       cliproxyapi: {
         npm: "@ai-sdk/openai-compatible",
@@ -408,6 +430,29 @@ export function generateConfigJson(apiKey: string, models: Record<string, ModelD
     },
     model: `cliproxyapi/${firstModelId}`,
   };
+
+  if (options?.mcps && options.mcps.length > 0) {
+    const mcpServers: Record<string, Record<string, unknown>> = {};
+    for (const mcp of options.mcps) {
+      const commandArray = mcp.command.trim().split(/\s+/);
+      mcpServers[mcp.name] = {
+        type: "local",
+        command: commandArray,
+      };
+    }
+    configObj.mcp = mcpServers;
+  }
+
+  if (options?.lsps && options.lsps.length > 0) {
+    const lspServers: Record<string, Record<string, unknown>> = {};
+    for (const lsp of options.lsps) {
+      const commandArray = lsp.command.trim().split(/\s+/);
+      lspServers[lsp.language] = {
+        command: commandArray,
+      };
+    }
+    configObj.lsp = lspServers;
+  }
 
   return JSON.stringify(configObj, null, 2);
 }

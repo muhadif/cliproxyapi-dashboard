@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { posix as pathPosix } from "path";
 import { verifySession } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 
@@ -24,13 +25,86 @@ const NON_ADMIN_OAUTH_PATHS = new Set<string>([
   "get-auth-status",
 ]);
 
+const ALLOWED_MANAGEMENT_PATHS = new Set<string>([
+  "config",
+  "usage",
+  "logs",
+  "logging-to-file",
+  "latest-version",
+  "auth-files",
+  "openai-compatibility",
+  "oauth-callback",
+  ...NON_ADMIN_OAUTH_PATHS,
+]);
+
+const ALLOWED_MANAGEMENT_PATH_PATTERNS = [
+  /^[a-z0-9-]+-api-key$/,
+];
+
+function isAllowedManagementPath(path: string): boolean {
+  return (
+    ALLOWED_MANAGEMENT_PATHS.has(path) ||
+    ALLOWED_MANAGEMENT_PATH_PATTERNS.some((pattern) => pattern.test(path))
+  );
+}
+
+function normalizeAndValidateManagementPath(rawPath: string): string | null {
+  const loweredRawPath = rawPath.toLowerCase();
+  if (
+    rawPath.includes("\\") ||
+    rawPath.includes("\0") ||
+    rawPath.includes("..") ||
+    loweredRawPath.includes("%2e%2e") ||
+    loweredRawPath.includes("%00")
+  ) {
+    return null;
+  }
+
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(rawPath);
+  } catch {
+    return null;
+  }
+
+  const loweredDecodedPath = decodedPath.toLowerCase();
+  if (
+    decodedPath.includes("\\") ||
+    decodedPath.includes("\0") ||
+    decodedPath.includes("..") ||
+    loweredDecodedPath.includes("%2e%2e") ||
+    loweredDecodedPath.includes("%00")
+  ) {
+    return null;
+  }
+
+  const normalizedPath = pathPosix
+    .normalize(`/${decodedPath}`)
+    .replace(/\/+/g, "/")
+    .replace(/^\/+/, "");
+
+  if (!normalizedPath || normalizedPath === ".") {
+    return null;
+  }
+
+  if (!/^[a-z0-9-]+(?:\/[a-z0-9-]+)*$/i.test(normalizedPath)) {
+    return null;
+  }
+
+  if (!isAllowedManagementPath(normalizedPath)) {
+    return null;
+  }
+
+  return normalizedPath;
+}
+
 function isNonAdminAllowedManagementRequest(method: string, path: string): boolean {
   return method === "GET" && NON_ADMIN_OAUTH_PATHS.has(path);
 }
 
 async function proxyRequest(
   method: string,
-  path: string,
+  rawPath: string,
   request: NextRequest
 ): Promise<NextResponse> {
   const session = await verifySession();
@@ -47,7 +121,21 @@ async function proxyRequest(
     select: { isAdmin: true },
   });
 
-  if (!user?.isAdmin && !isNonAdminAllowedManagementRequest(method, path)) {
+  const normalizedPath = normalizeAndValidateManagementPath(rawPath);
+  if (!normalizedPath) {
+    console.warn("Blocked invalid management proxy path", {
+      method,
+      rawPath,
+      userId: session.userId,
+      source: "api/management/[...path]",
+    });
+    return NextResponse.json(
+      { error: "Invalid request path" },
+      { status: 400 }
+    );
+  }
+
+  if (!user?.isAdmin && !isNonAdminAllowedManagementRequest(method, normalizedPath)) {
     return NextResponse.json(
       { error: "Forbidden: Admin access required" },
       { status: 403 }
@@ -63,14 +151,16 @@ async function proxyRequest(
   }
 
   const incomingUrl = new URL(request.url);
-  const queryString = incomingUrl.search;
-  const targetUrl = `${BACKEND_API_URL}/${path}${queryString}`;
+  const targetUrl = new URL(BACKEND_API_URL);
+  const basePath = targetUrl.pathname.replace(/\/+$/, "");
+  targetUrl.pathname = `${basePath}/${normalizedPath}`;
+  targetUrl.search = incomingUrl.search;
 
   let parsedUrl: URL;
   try {
-    parsedUrl = new URL(targetUrl);
+    parsedUrl = new URL(targetUrl.toString());
   } catch {
-    console.error("Invalid target URL:", targetUrl);
+    console.error("Invalid target URL:", targetUrl.toString());
     return NextResponse.json(
       { error: "Invalid request path" },
       { status: 400 }
@@ -103,7 +193,7 @@ async function proxyRequest(
       }
     }
 
-    const response = await fetch(targetUrl, {
+    const response = await fetch(targetUrl.toString(), {
       method,
       headers,
       body,

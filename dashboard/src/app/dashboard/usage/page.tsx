@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
@@ -36,13 +36,27 @@ interface FetchUsageParams {
   setStats: (stats: UsageStats | null) => void;
   setLoading: (loading: boolean) => void;
   showToast: (message: string, type: "success" | "error" | "info") => void;
+  setAdminRequired: (required: boolean) => void;
+  isFirstLoad: boolean;
 }
 
 async function fetchUsage(params: FetchUsageParams) {
-  const { setStats, setLoading, showToast } = params;
-  setLoading(true);
+  const { setStats, setLoading, showToast, setAdminRequired, isFirstLoad } = params;
+  
+  // Only show loading spinner on first load or manual refresh
+  if (isFirstLoad) {
+    setLoading(true);
+  }
+  
   try {
-    const res = await fetch("/api/management/usage");
+    const res = await fetch("/api/usage");
+    
+    if (res.status === 403) {
+      setAdminRequired(true);
+      setLoading(false);
+      return;
+    }
+    
     if (!res.ok) {
       showToast("Failed to load usage statistics", "error");
       setLoading(false);
@@ -63,6 +77,7 @@ async function fetchUsage(params: FetchUsageParams) {
       tokens_by_day: usage?.tokens_by_day ?? undefined,
       tokens_by_hour: usage?.tokens_by_hour ?? undefined,
     });
+    setAdminRequired(false);
     setLoading(false);
   } catch {
     showToast("Network error", "error");
@@ -73,20 +88,60 @@ async function fetchUsage(params: FetchUsageParams) {
 export default function UsagePage() {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [adminRequired, setAdminRequired] = useState(false);
   const { showToast } = useToast();
+  const isFirstLoadRef = useRef(true);
 
   useEffect(() => {
-    void fetchUsage({ setStats, setLoading, showToast });
+    void fetchUsage({ 
+      setStats, 
+      setLoading, 
+      showToast, 
+      setAdminRequired,
+      isFirstLoad: isFirstLoadRef.current 
+    });
+    
+    // Mark first load complete
+    if (isFirstLoadRef.current) {
+      isFirstLoadRef.current = false;
+    }
+    
+    // Set up 30-second auto-refresh
+    const interval = setInterval(() => {
+      void fetchUsage({ 
+        setStats, 
+        setLoading: () => {}, // Silent background refresh
+        showToast, 
+        setAdminRequired,
+        isFirstLoad: false
+      });
+    }, 30000);
+    
+    return () => clearInterval(interval);
   }, [showToast]);
 
    return (
      <div className="space-y-4">
        <div className="flex items-center justify-between">
-         <h1 className="text-2xl font-bold tracking-tight text-white drop-shadow-lg">
-           Usage Statistics
-         </h1>
+         <div>
+           <h1 className="text-2xl font-bold tracking-tight text-white drop-shadow-lg">
+             Usage Statistics
+           </h1>
+           <p className="mt-1 text-xs text-white/50">
+             Auto-refreshes every 30s
+           </p>
+         </div>
         <Button
-          onClick={() => fetchUsage({ setStats, setLoading, showToast })}
+          onClick={() => {
+            isFirstLoadRef.current = true;
+            void fetchUsage({ 
+              setStats, 
+              setLoading, 
+              showToast, 
+              setAdminRequired,
+              isFirstLoad: true 
+            });
+          }}
           disabled={loading}
         >
           Refresh
@@ -97,6 +152,14 @@ export default function UsagePage() {
         <Card>
           <CardContent>
             <div className="p-8 text-center text-white">Loading statistics...</div>
+          </CardContent>
+        </Card>
+      ) : adminRequired ? (
+        <Card>
+          <CardContent>
+            <div className="border-l-4 border-yellow-400/60 backdrop-blur-xl bg-yellow-500/20 p-4 text-sm text-white rounded-r-xl">
+              Usage statistics are only available to administrators.
+            </div>
           </CardContent>
         </Card>
       ) : !stats ? (
@@ -187,7 +250,7 @@ export default function UsagePage() {
                   <table className="w-full backdrop-blur-xl bg-white/5 border border-white/20 rounded-xl text-sm">
                     <thead className="border-b border-white/20 bg-white/5">
                       <tr>
-                        <th className="p-3 text-left font-medium text-white/90">API</th>
+                        <th className="p-3 text-left font-medium text-white/90">API Key</th>
                         <th className="p-3 text-right font-medium text-white/90">Total</th>
                         <th className="p-3 text-right font-medium text-white/90">Success</th>
                         <th className="p-3 text-right font-medium text-white/90">Failed</th>

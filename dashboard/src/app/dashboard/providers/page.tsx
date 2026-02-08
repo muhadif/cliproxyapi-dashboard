@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Modal, ModalHeader, ModalTitle, ModalContent, ModalFooter } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import { CustomProviderModal } from "@/components/custom-provider-modal";
+import { CustomProviderCard } from "@/components/custom-provider-card";
 
 // ── Types & Constants ──────────────────────────────────────────────────────────
 
@@ -41,6 +43,25 @@ interface OAuthAccountWithOwnership {
   ownerUsername: string | null;
   ownerUserId: string | null;
   isOwn: boolean;
+}
+
+interface ModelMapping {
+  upstreamName: string;
+  alias: string;
+}
+
+interface CustomProvider {
+  id: string;
+  name: string;
+  providerId: string;
+  baseUrl: string;
+  prefix: string | null;
+  proxyUrl: string | null;
+  headers: Record<string, string>;
+  models: ModelMapping[];
+  excludedModels: { pattern: string }[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 const PROVIDERS = [
@@ -275,6 +296,11 @@ export default function ProvidersPage() {
   const selectedOAuthProviderIdRef = useRef<OAuthProviderId | null>(null);
   const authStateRef = useRef<string | null>(null);
 
+  const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
+  const [customProvidersLoading, setCustomProvidersLoading] = useState(true);
+  const [showCustomProviderModal, setShowCustomProviderModal] = useState(false);
+  const [editingCustomProvider, setEditingCustomProvider] = useState<CustomProvider | undefined>(undefined);
+
   const selectedOAuthProvider = getOAuthProviderById(selectedOAuthProviderId);
 
   // ── API Key handlers ───────────────────────────────────────────────────────
@@ -447,12 +473,33 @@ export default function ProvidersPage() {
     }
   }, [showToast]);
 
+  const loadCustomProviders = useCallback(async () => {
+    setCustomProvidersLoading(true);
+    try {
+      const res = await fetch("/api/custom-providers");
+      if (!res.ok) {
+        showToast("Failed to load custom providers", "error");
+        setCustomProvidersLoading(false);
+        return;
+      }
+
+      const data = await res.json();
+      setCustomProviders(Array.isArray(data.providers) ? data.providers : []);
+      setCustomProvidersLoading(false);
+    } catch (error) {
+      console.error("Load custom providers error:", error);
+      setCustomProvidersLoading(false);
+      showToast("Network error", "error");
+    }
+  }, [showToast]);
+
   useEffect(() => {
     void loadAccounts();
+    void loadCustomProviders();
     return () => {
       stopPolling();
     };
-  }, [loadAccounts, stopPolling]);
+  }, [loadAccounts, loadCustomProviders, stopPolling]);
 
   const openAuthPopup = (url: string) => {
     // noopener makes window.open() return null — do not add it back
@@ -651,6 +698,38 @@ export default function ProvidersPage() {
       console.error("Delete OAuth error:", error);
       showToast("Network error", "error");
     }
+  };
+
+  const handleCustomProviderEdit = (provider: CustomProvider) => {
+    setEditingCustomProvider(provider);
+    setShowCustomProviderModal(true);
+  };
+
+  const handleCustomProviderDelete = async (providerId: string) => {
+    try {
+      const res = await fetch(`/api/custom-providers/${providerId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        showToast(data.error || "Failed to delete custom provider", "error");
+        return;
+      }
+      showToast("Custom provider deleted", "success");
+      void loadCustomProviders();
+    } catch (error) {
+      console.error("Delete custom provider error:", error);
+      showToast("Network error", "error");
+    }
+  };
+
+  const handleCustomProviderSuccess = () => {
+    void loadCustomProviders();
+  };
+
+  const handleCustomProviderModalClose = () => {
+    setShowCustomProviderModal(false);
+    setEditingCustomProvider(undefined);
   };
 
   const isOAuthSubmitDisabled =
@@ -932,10 +1011,58 @@ export default function ProvidersPage() {
                    ))}
                  </div>
                </CardContent>
-              </Card>
-           </section>
+               </Card>
+            </section>
 
-           {/* ── Admin Settings ────────────────────────────────────────────────── */}
+            {/* ── Custom Providers ──────────────────────────────────────────────────── */}
+            <section className="space-y-4">
+              <div className="flex items-center gap-3 border-b border-white/10 pb-3">
+                <div className="flex size-10 items-center justify-center rounded-lg bg-gradient-to-br from-green-500/20 to-emerald-500/20 text-xl backdrop-blur-xl">
+                  🔧
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-xl font-bold text-white">Custom Providers</h2>
+                  <p className="text-sm text-white/60">Manage your custom OpenAI-compatible providers</p>
+                </div>
+                <Button onClick={() => setShowCustomProviderModal(true)}>
+                  Add Custom Provider
+                </Button>
+              </div>
+
+              {customProvidersLoading ? (
+                <Card>
+                  <CardContent>
+                    <div className="flex items-center justify-center p-8">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="size-8 animate-spin rounded-full border-4 border-white/20 border-t-purple-500"></div>
+                        <p className="text-sm text-white/70">Loading custom providers...</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : customProviders.length === 0 ? (
+                <Card>
+                  <CardContent>
+                    <div className="rounded-xl border-l-4 border-white/30 bg-white/5 p-4 text-sm text-white/80 backdrop-blur-xl">
+                      No custom providers yet. Add one to get started.
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {customProviders.map((provider) => (
+                    <CustomProviderCard
+                      key={provider.id}
+                      provider={provider}
+                      onEdit={() => handleCustomProviderEdit(provider)}
+                      onDelete={() => handleCustomProviderDelete(provider.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* ── Admin Settings ────────────────────────────────────────────────── */}
            {currentUser?.isAdmin && (
              <section className="space-y-4">
                <div className="flex items-center gap-3 border-b border-white/10 pb-3">
@@ -1165,6 +1292,14 @@ export default function ProvidersPage() {
           )}
         </ModalFooter>
       </Modal>
+
+      {/* ── Custom Provider Modal ──────────────────────────────────────────── */}
+      <CustomProviderModal
+        isOpen={showCustomProviderModal}
+        onClose={handleCustomProviderModalClose}
+        provider={editingCustomProvider}
+        onSuccess={handleCustomProviderSuccess}
+      />
     </div>
   );
 }

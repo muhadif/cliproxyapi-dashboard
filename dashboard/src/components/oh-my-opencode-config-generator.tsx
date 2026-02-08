@@ -463,7 +463,15 @@ export function OhMyOpenCodeConfigGenerator({
    const handleTmuxEnabledToggle = () => {
      const currentTmux = overrides.tmux ?? {};
      const newEnabled = !currentTmux.enabled;
-     const newTmux = newEnabled ? { ...currentTmux, enabled: true } : undefined;
+     const newTmux = newEnabled
+       ? {
+           enabled: true,
+           layout: currentTmux.layout ?? "main-vertical",
+           main_pane_size: currentTmux.main_pane_size ?? 60,
+           main_pane_min_width: currentTmux.main_pane_min_width ?? 120,
+           agent_pane_min_width: currentTmux.agent_pane_min_width ?? 40,
+         }
+       : undefined;
      const newOverrides = { ...overrides, tmux: newTmux };
      setOverrides(newOverrides);
      saveOverrides(newOverrides);

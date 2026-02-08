@@ -400,8 +400,17 @@ export function buildOhMyOpenCodeConfig(
   if (overrides?.disabled_commands?.length) config.disabled_commands = overrides.disabled_commands;
   if (overrides?.disabled_mcps?.length) config.disabled_mcps = overrides.disabled_mcps;
 
-  // Tmux — only include if user configured it
-  if (overrides?.tmux) config.tmux = overrides.tmux;
+  // Tmux — merge with defaults (same pattern as sisyphus_agent, git_master, etc.)
+  if (overrides?.tmux) {
+    config.tmux = {
+      enabled: true,
+      layout: "main-vertical",
+      main_pane_size: 60,
+      main_pane_min_width: 120,
+      agent_pane_min_width: 40,
+      ...overrides.tmux,
+    };
+  }
 
   // Background task — merge user overrides with defaults
   config.background_task = { defaultConcurrency: 5, ...overrides?.background_task };

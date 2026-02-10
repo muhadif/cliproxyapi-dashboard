@@ -1,9 +1,6 @@
 import type { NextConfig } from "next";
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const isDev = process.env.NODE_ENV === "development";
-const configDir = dirname(fileURLToPath(import.meta.url));
 
 // Environment-aware CSP configuration
 // Dev: Allow Next.js inline scripts/eval and websocket connections
@@ -35,9 +32,6 @@ const getCSP = (): string => {
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  turbopack: {
-    root: configDir,
-  },
   async headers() {
     const csp = getCSP();
 

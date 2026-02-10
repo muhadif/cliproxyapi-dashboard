@@ -179,6 +179,15 @@ async function proxyRequest(
   }
 
   try {
+    const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
+    const contentLength = request.headers.get("content-length");
+    if (contentLength && parseInt(contentLength, 10) > MAX_BODY_SIZE) {
+      return NextResponse.json(
+        { error: "Payload too large" },
+        { status: 413 }
+      );
+    }
+
     const headers: HeadersInit = {
       "Authorization": `Bearer ${MANAGEMENT_API_KEY}`,
     };

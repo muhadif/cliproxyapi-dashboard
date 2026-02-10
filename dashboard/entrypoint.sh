@@ -149,6 +149,7 @@ client.connect()
     CREATE UNIQUE INDEX IF NOT EXISTS "provider_key_ownerships_keyHash_key" ON "provider_key_ownerships"("keyHash");
     CREATE INDEX IF NOT EXISTS "provider_key_ownerships_userId_idx" ON "provider_key_ownerships"("userId");
     CREATE INDEX IF NOT EXISTS "provider_key_ownerships_provider_idx" ON "provider_key_ownerships"("provider");
+    CREATE INDEX IF NOT EXISTS "provider_key_ownerships_provider_keyHash_idx" ON "provider_key_ownerships"("provider", "keyHash");
     DO $$ BEGIN
       ALTER TABLE "provider_key_ownerships" ADD CONSTRAINT "provider_key_ownerships_userId_fkey"
         FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;
